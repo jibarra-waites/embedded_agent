@@ -1,6 +1,6 @@
 #ifndef ULOGGER_VERSION_H
 #define ULOGGER_VERSION_H
 
-#define ULOGGER_VERSION "v1.2.2"
+#define ULOGGER_VERSION "v1.2.3"
 
 #endif /* ULOGGER_VERSION_H */

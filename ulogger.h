@@ -78,7 +78,10 @@ typedef struct {
     // Timestamp configuration
     uint32_t (*get_tick)(void);    // User-provided callback returning current tick count (raw hardware ticks)
     uint32_t tick_rate_hz;         // Tick rate in Hz (e.g. 32768 for a 32.768 kHz RTC)
-    
+    uint64_t (*get_epoch_us)(void); // Optional callback returning current Unix epoch time in microseconds (UTC), sampled at the
+                                    // same instant as get_tick() at report-generation time. NULL/unregistered means the cloud
+                                    // ingestion side falls back to its own receive-time approximation for absolute timestamps.
+
     // Crash dump header metadata
     uint32_t application_id;        // Application identifier
     const char *git_hash;           // Git commit hash (max 40 chars)
@@ -130,12 +133,21 @@ void ulogger_set_flags_level(ulogger_flags_level_t *flags_level);
 void ulogger_clear_nv_logs(void);
 
 /**
+ * Size in bytes of the buffer header serialized by ulogger_read_nv_logs_with_header(),
+ * i.e. the number of leading bytes in that function's output before the raw log data
+ * begins. Use this to size a fixed/static header-only buffer instead of hardcoding a
+ * byte count -- it's kept in sync with the header actually emitted by this build of
+ * the library, so it updates automatically across wire-format version bumps.
+ */
+#define ULOGGER_BUFFER_HEADER_SIZE 25
+
+/**
  * @brief Get current non-volatile log buffer usage in bytes
- * @return Total bytes needed for transmission (17-byte header + log data), or 0 if no logs
- * 
+ * @return Total bytes needed for transmission (header + log data), or 0 if no logs
+ *
  * @note This function returns the total size required for buffer allocation when using
- *       ulogger_read_nv_logs_with_header(). The returned size includes both the 17-byte
- *       header and the actual log data.
+ *       ulogger_read_nv_logs_with_header(). The returned size includes both the header
+ *       (ULOGGER_BUFFER_HEADER_SIZE bytes) and the actual log data.
  */
 uint32_t ulogger_get_nv_log_usage(void);
 
@@ -146,17 +158,17 @@ uint32_t ulogger_get_nv_log_usage(void);
 uint32_t ulogger_get_core_dump_size(void);
 
 /**
- * @brief Read NV logs with 17-byte header prepended, with support for chunked reads
- * 
- * The complete output is a logical stream composed of a 17-byte header followed by
- * the raw NV log data. Applications that cannot hold the entire stream in RAM can
- * call this function repeatedly, advancing read_offset by the number of bytes
- * returned each time, until 0 is returned.
- * 
+ * @brief Read NV logs with header prepended, with support for chunked reads
+ *
+ * The complete output is a logical stream composed of the buffer header
+ * (ULOGGER_BUFFER_HEADER_SIZE bytes) followed by the raw NV log data. Applications
+ * that cannot hold the entire stream in RAM can call this function repeatedly,
+ * advancing read_offset by the number of bytes returned each time, until 0 is returned.
+ *
  * @param dest         Destination buffer to write into
  * @param max_bytes    Maximum bytes to write to dest
- * @param session_token Session identifier included in the header (only relevant when
- *                     read_offset < 17, i.e. the header is being read)
+ * @param session_token Session identifier included in the header (only relevant while
+ *                     the header is still being read, i.e. read_offset < header size)
  * @param read_offset  Byte offset into the logical stream [header | log data] to start
  *                     reading from. Pass 0 on the first call.
  * @return Number of bytes written to dest, or 0 if no logs available or read_offset
